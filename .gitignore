@@ -30,6 +30,8 @@ staticfiles/
 
 # Environment
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -68,7 +70,7 @@ htmlcov/
 *.temp
 
 # Project specific
-data/
+*.sql
 *.zip
 *.pdf
-*.db 
+logs/ 
