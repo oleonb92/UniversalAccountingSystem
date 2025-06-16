@@ -1,7 +1,7 @@
 import zipfile
 import os
 
-def zip_project(output_filename="UniversalAccountingSystem.zip", exclude_dirs=None):
+def zip_project(output_filename="FinancialHub.zip", exclude_dirs=None):
     if exclude_dirs is None:
         exclude_dirs = [".venv", "__pycache__", ".git", ".DS_Store", "data", "venv"]
 

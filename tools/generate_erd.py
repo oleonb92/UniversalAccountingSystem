@@ -1,24 +1,16 @@
-import sys
 import os
-from sqlalchemy_schemadisplay import create_uml_graph
+import sys
 from sqlalchemy import create_engine, MetaData
+from eralchemy2 import render_er
 
-# Agrega la ruta raíz del proyecto a sys.path
+# Asegura que Python pueda encontrar backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from backend.models import Base
-
-# Conecta a la base de datos existente
-engine = create_engine("sqlite:///data/universal_finances.db")
-Base.metadata.create_all(engine)
-
-# Refleja todas las tablas
+# Conecta a la base de datos
+engine = create_engine("sqlite:///data/financialhub.db")
 metadata = MetaData()
-metadata.reflect(bind=engine)
+metadata.reflect(engine)
 
-# Genera el gráfico (usando versión simplificada de la función)
-graph = create_uml_graph(Base.registry.mappers)
-
-# Exporta a PDF
-graph.write_pdf("universal_accounting_erd.pdf")
-print("✅ ERD generado exitosamente: universal_accounting_erd.pdf")
+# Genera el diagrama ER
+graph = render_er(metadata, "financialhub_erd.pdf")
+print("✅ ERD generado exitosamente: financialhub_erd.pdf")

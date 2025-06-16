@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Universal Accounting System", layout="wide")
+st.set_page_config(page_title="FinancialHub", layout="wide")
 
 # Sidebar navigation
 st.sidebar.title("📂 Navigation")
@@ -50,7 +50,7 @@ st.markdown("""
     <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script>
 """, unsafe_allow_html=True)
 
-st.title("📊 Universal Accounting System")
+st.title("📊 FinancialHub")
 st.markdown("Welcome to your financial hub. Use the sidebar to navigate between modules.")
 
 if selected_page == "Dashboard":

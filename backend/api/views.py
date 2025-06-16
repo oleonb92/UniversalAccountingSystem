@@ -8,29 +8,17 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import admin_required
 from audit.models import AuditLog
+from accounts.access_control import require_access, has_pro_access
+from organizations.models import Organization
+from accounts.constants import PRO_FEATURES_ACCOUNTANT, PRO_FEATURES_MEMBER
+from django.utils import timezone
+from rest_framework import viewsets, permissions
+from rest_framework.decorators import action
+from accounts.serializers import UserSerializer, UserApprovalSerializer
 
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
-
-@api_view(['POST'])
-def register_user(request):
-    logger.info("🔐 Register attempt with data: %s", request.data)
-
-    username = request.data.get('username')
-    password = request.data.get('password')
-
-    if not username or not password:
-        logger.warning("❌ Missing username or password")
-        return Response({'error': 'Username and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    if User.objects.filter(username=username).exists():
-        logger.warning("❌ Username already exists: %s", username)
-        return Response({'error': 'Username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    user = User.objects.create_user(username=username, password=password)
-    logger.info("✅ User created: %s", username)
-    return Response({'message': 'User registered successfully.'}, status=status.HTTP_201_CREATED)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -41,35 +29,59 @@ def profile_view(request):
     logger.debug("User role: %s", getattr(user, "role", "undefined"))
     logger.debug("User household: %s", getattr(user.household, "name", None) if hasattr(user, "household") else "None")
 
+    # Estado Pro y features activos
+    now = timezone.now()
+    pro_status = {
+        "pro_global": user.pro_features,
+        "pro_trial_active": bool(user.pro_trial_until and user.pro_trial_until > now),
+        "pro_trial_until": user.pro_trial_until,
+        "pro_features_list": user.pro_features_list,
+        "account_type": user.account_type,
+        "features_accountant": PRO_FEATURES_ACCOUNTANT,
+        "features_member": PRO_FEATURES_MEMBER,
+    }
+
     try:
         return Response({
+            "id": user.id,
             "username": user.username,
-            "role": user.role,
-            "household": user.household.name if user.household else None,
+            "role": getattr(user, "role", None),
+            "household": user.household.name if hasattr(user, "household") and user.household else None,
+            "pro_status": pro_status,
         })
     except Exception as e:
         logger.error("🔥 Error in profile_view: %s", str(e))
-        return Response({"error": "Error fetching profile."}, status=500)
+        return Response(
+            {"error": "Error fetching profile."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         logger.info("🔑 Token login attempt for: %s", attrs.get("username"))
-        data = super().validate(attrs)
-        data['username'] = self.user.username
-        data['role'] = self.user.role
-        data['household'] = self.user.household.name if self.user.household else None
-        logger.info("✅ Token issued for user: %s", self.user.username)
-        return data
+        try:
+            data = super().validate(attrs)
+            data['username'] = self.user.username
+            data['role'] = getattr(self.user, 'role', None)
+            data['household'] = self.user.household.name if hasattr(self.user, 'household') and self.user.household else None
+            logger.info("✅ Token issued for user: %s", self.user.username)
+            return data
+        except Exception as e:
+            logger.error("❌ Login failed for user %s: %s", attrs.get("username"), str(e))
+            raise
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@require_access(required_roles=["admin"], require_pro=True)
 def list_users(request):
     if getattr(request.user, "role", "") != "admin":
-        return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            {"detail": "Not authorized."},
+            status=status.HTTP_403_FORBIDDEN
+        )
 
     users = User.objects.all()
     user_data = []
@@ -101,8 +113,7 @@ def list_users(request):
     return Response(user_data)
 
 @api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-@admin_required
+@require_access(required_roles=["admin"], require_pro=True)
 def approve_user(request, user_id):
     try:
         user = User.objects.get(id=user_id)
@@ -119,11 +130,13 @@ def approve_user(request, user_id):
 
         return Response({"message": f"User '{user.username}' approved."})
     except User.DoesNotExist:
-        return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)   
+        return Response(
+            {"error": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
 @api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-@admin_required
+@require_access(required_roles=["admin"], require_pro=True)
 def deny_user(request, user_id):
     try:
         user = User.objects.get(id=user_id)
@@ -139,22 +152,24 @@ def deny_user(request, user_id):
 
         return Response({"message": f"User '{user.username}' denied."})
     except User.DoesNotExist:
-        return Response({"error": "User not found."}, status=404)
-    
+        return Response(
+            {"error": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
 @api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-@admin_required
+@require_access(required_roles=["admin"], require_pro=True)
 def edit_user(request, user_id):
     try:
         user = User.objects.get(id=user_id)
-        print("🛠 PATCH user data:")
-        print(" - username:", request.data.get("username"))
-        print(" - first_name:", request.data.get("first_name"))
-        print(" - last_name:", request.data.get("last_name"))
-        print(" - email:", request.data.get("email"))
-        print(" - role:", request.data.get("role"))
-        print(" - birthdate:", request.data.get("birthdate"))
+        logger.info("🛠 PATCH user data for %s:", user.username)
+        logger.info(" - username: %s", request.data.get("username"))
+        logger.info(" - first_name: %s", request.data.get("first_name"))
+        logger.info(" - last_name: %s", request.data.get("last_name"))
+        logger.info(" - email: %s", request.data.get("email"))
+        logger.info(" - role: %s", request.data.get("role"))
+        logger.info(" - birthdate: %s", request.data.get("birthdate"))
+
         user.username = request.data.get("username", user.username)
         user.first_name = request.data.get("first_name", user.first_name)
         user.last_name = request.data.get("last_name", user.last_name)
@@ -172,12 +187,13 @@ def edit_user(request, user_id):
 
         return Response({"message": "User updated."})
     except User.DoesNotExist:
-        return Response({"error": "User not found."}, status=404)
-
+        return Response(
+            {"error": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
 @api_view(["PATCH"])
-@permission_classes([IsAuthenticated])
-@admin_required
+@require_access(required_roles=["admin"], require_pro=True)
 def pause_user(request, user_id):
     try:
         user = User.objects.get(id=user_id)
@@ -193,12 +209,13 @@ def pause_user(request, user_id):
 
         return Response({"message": f"User '{user.username}' paused."})
     except User.DoesNotExist:
-        return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {"error": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
-
-@api_view(["DELETE"])
-@permission_classes([IsAuthenticated])
-@admin_required
+@api_view(["PATCH"])
+@require_access(required_roles=["admin"], require_pro=True)
 def delete_user(request, user_id):
     try:
         user = User.objects.get(id=user_id)
@@ -216,7 +233,7 @@ def delete_user(request, user_id):
         return Response({"error": "User not found."}, status=404)
     
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@require_access(required_roles=["admin", "accountant"], require_pro=True, allow_accountant_always=True)
 def get_user_detail(request, user_id):
     try:
         user = User.objects.get(id=user_id)
@@ -237,3 +254,69 @@ def get_user_detail(request, user_id):
         return Response(data)
     except User.DoesNotExist:
         return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+# Health check endpoint
+@api_view(["GET"])
+def health_check(request):
+    """
+    A simple endpoint to check if the API service is up.
+    """
+    return Response({"status": "healthy", "message": "Backend API is running"}, status=status.HTTP_200_OK)
+
+class UserViewSet(viewsets.ModelViewSet):
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return User.objects.filter(organization=self.request.user.organization)
+
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization)
+
+    def perform_update(self, serializer):
+        if serializer.instance.organization != self.request.user.organization:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        serializer.save()
+
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        user = request.user
+        data = {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'role': user.role,
+            'organization_name': user.organization.name if user.organization else None,
+        }
+        return Response(data)
+
+    @action(detail=False, methods=['get'])
+    def pending_approvals(self, request):
+        if not request.user.role == 'admin':
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        pending_users = User.objects.filter(
+            organization=request.user.organization,
+            was_approved=False
+        )
+        serializer = UserApprovalSerializer(pending_users, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        if not request.user.role == 'admin':
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        user = self.get_object()
+        if user.organization != request.user.organization:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        user.was_approved = True
+        user.is_active = True
+        user.save()
+        
+        serializer = UserApprovalSerializer(user)
+        return Response(serializer.data)

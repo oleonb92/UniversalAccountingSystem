@@ -2,7 +2,6 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from households.models import Household
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -22,7 +21,6 @@ class RegistrationTests(TestCase):
         self.assertTrue(User.objects.filter(username="adminuser", is_active=True).exists())
 
     def test_member_registration(self):
-        household = Household.objects.create(name="AlphaFamily")
         response = self.client.post(reverse('register'), {
             "username": "memberuser",
             "password": "testpass123",
@@ -42,7 +40,6 @@ class RegistrationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_admin_duplicate_household(self):
-        Household.objects.create(name="MyFamily")
         response = self.client.post(reverse('register'), {
             "username": "adminx",
             "password": "testpass123",

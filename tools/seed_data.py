@@ -14,7 +14,7 @@ from backend.models import (
 )
 
 # Conecta a la base de datos
-engine = create_engine("sqlite:///data/universal_finances.db")
+engine = create_engine("sqlite:///data/financialhub.db")
 Session = sessionmaker(bind=engine)
 session = Session()
 
